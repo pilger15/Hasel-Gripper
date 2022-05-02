@@ -87,17 +87,17 @@ int main(void)
         } else {
             clear(DDRC,6);
         }
-        if(outputs[0]){ // L-L (B7)
+        if(outputs[1]){ // L-L (B7)
             set(DDRB,7);
         } else {
             clear(DDRB,7);
         }
-        if(outputs[0]){ // H-R (B6)
+        if(outputs[2]){ // H-R (B6)
             set(DDRB,6);
         } else {
             clear(DDRB,6);
         }
-        if(outputs[0]){ // L-R (B5)
+        if(outputs[3]){ // L-R (B5)
             set(DDRB,5);
         } else {
             clear(DDRB,5);

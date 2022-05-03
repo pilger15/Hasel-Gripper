@@ -20,13 +20,15 @@
 // Ixxxx (HV I gain between 0000 and 9999)
 // Dxxxx (HV D gain between 0000 and 9999)
 
-#define USB_RX_BYTES    4
-
+#define USB_RX_BYTES    1
+#define USB_COMMAND_MSK 0xE0
+#define USB_VALUE_MSK   0x1F
+/*
 #define F               0
 #define P               1
 #define I               2
 #define D               3
-
+*/
 #define HV_GAIN_F       0
 #define HV_GAIN_P       0
 #define HV_GAIN_I       0
@@ -38,22 +40,45 @@
 // 0 = no filtering, 1 = too much filtering
 #define HV_FILTER_BETA  0
 
+typedef enum
+{
+    H_off,          // All low
+    LeftH_side,     //LeftH + RightL
+    RightH_side,    //RightH + LeftL
+    H_discharge     //LeftL + RightL
+} h_bridge_state_t;
+
+typedef enum
+{
+    F,
+    P,
+    I,
+    D,
+    SET_HV_TARGET,
+    SET_H_STATUS
+} control_t;
+
 // FUNCTION PROTOTYPES
 void init(void);
 void leds(bool led_1, bool led_2);
+void inline set_h_bridge(h_bridge_state_t state);
 
 volatile static bool tick = FALSE;
 
 int main(void)
 {
-    char incoming = 0;
+    
+    char incoming = 0; 
+    uint16_t outgoing = 0;
     char usb_rx_buffer[USB_RX_BYTES];
     
-    int hv_target = 0; // RANGE = 0 to 9999
-    int outputs[4] = {0,0,0,0}; // H-L, L-L, H-R, L-R
-    int hv_gains[4] = {0,0,0,0}; // P, I, D
+    uint16_t hv_target = 0; // RANGE = 0 to 8191 (13bit)
+    //int outputs[4] = {0,0,0,0}; // H-L, L-L, H-R, L-R
+    uint16_t hv_gains[4] = {HV_GAIN_F,HV_GAIN_P,HV_GAIN_I,HV_GAIN_D}; //F, P, I, D // RANGE = 0 to 8191 (13bit)
 
     double hv_feedback = 0.0, hv_filtered = 0.0, hv_p = 0.0, hv_i = 0.0, hv_d = 0.0, hv_p_last = 0.0, hv_output = 0.0;
+    h_bridge_state_t h_bridge_state = H_off;
+
     int i = 0;
     init();
     while(1)
@@ -81,33 +106,15 @@ int main(void)
         hv_output = hv_gains[F] * hv_target + hv_gains[P] * hv_p + hv_gains[I] * hv_i + hv_gains[D] * hv_d;
         OCR4D = hv_output; // PWM output max 1023
 
-        // SET H-BRIDGE OUTPUTS
-        if(outputs[0]){ // H-L (C6)
-            set(DDRC,6);
-        } else {
-            clear(DDRC,6);
-        }
-        if(outputs[1]){ // L-L (B7)
-            set(DDRB,7);
-        } else {
-            clear(DDRB,7);
-        }
-        if(outputs[2]){ // H-R (B6)
-            set(DDRB,6);
-        } else {
-            clear(DDRB,6);
-        }
-        if(outputs[3]){ // L-R (B5)
-            set(DDRB,5);
-        } else {
-            clear(DDRB,5);
-        }
+
+        set_h_bridge(h_bridge_state);
 
         // GET USB INPUT
         if(m_usb_rx_available()){ // absorb a new incoming command packet
             incoming = m_usb_rx_char();
-            switch(incoming){
-                case 'V': // SET HV OUTPUT
+            switch((control_t)(incoming&USB_COMMAND_MSK)>>5){
+                case SET_HV_TARGET: // SET HV OUTPUT
+                    /*
                     for(i=0; i<USB_RX_BYTES; i++){
                         while(!m_usb_rx_available()){};
                         usb_rx_buffer[i] = m_usb_rx_char();
@@ -115,56 +122,48 @@ int main(void)
                     }
                     m_usb_tx_string("\n");
                     hv_target = (int)(usb_rx_buffer[3]-'0') + 10*(int)(usb_rx_buffer[2]-'0') + 100*(int)(usb_rx_buffer[1]-'0') + 1000*(int)(usb_rx_buffer[0]-'0');
+                    */
+                    while(!m_usb_rx_available()){};
+                    usb_rx_buffer[i] = m_usb_rx_char();
+                    hv_target = ((uint16_t)(incoming&USB_VALUE_MSK)<<8) | usb_rx_buffer[0];
+                    outgoing = hv_target;
                     break;
-                case 'F': // SET HV F GAIN
-                    for(i=0; i<USB_RX_BYTES; i++){
-                        while(!m_usb_rx_available()){};
-                        usb_rx_buffer[i] = m_usb_rx_char();
-                        m_usb_tx_char(usb_rx_buffer[i]);
-                    }
-                    m_usb_tx_string("\n");
-                    hv_gains[F] = (int)(usb_rx_buffer[3]-'0') + 10*(int)(usb_rx_buffer[2]-'0') + 100*(int)(usb_rx_buffer[1]-'0') + 1000*(int)(usb_rx_buffer[0]-'0');
+                case F: // SET HV F GAIN
+                    while(!m_usb_rx_available()){};
+                    usb_rx_buffer[i] = m_usb_rx_char();
+                    hv_gains[F] = ((uint16_t)(incoming&USB_VALUE_MSK)<<8) | usb_rx_buffer[0];
+                    outgoing = hv_gains[F];
                     break;
-                case 'P': // SET HV P GAIN
-                    for(i=0; i<USB_RX_BYTES; i++){
-                        while(!m_usb_rx_available()){};
-                        usb_rx_buffer[i] = m_usb_rx_char();
-                        m_usb_tx_char(usb_rx_buffer[i]);
-                    }
-                    m_usb_tx_string("\n");
-                    hv_gains[P] = (int)(usb_rx_buffer[3]-'0') + 10*(int)(usb_rx_buffer[2]-'0') + 100*(int)(usb_rx_buffer[1]-'0') + 1000*(int)(usb_rx_buffer[0]-'0');
+                case P: // SET HV P GAIN
+                    while(!m_usb_rx_available()){};
+                    usb_rx_buffer[i] = m_usb_rx_char();
+                    hv_gains[P] = ((uint16_t)(incoming&USB_VALUE_MSK)<<8) | usb_rx_buffer[0];
+                    outgoing = hv_gains[P];
                     break;
-                case 'I': // SET HV I GAIN
-                    for(i=0; i<USB_RX_BYTES; i++){
-                        while(!m_usb_rx_available()){};
-                        usb_rx_buffer[i] = m_usb_rx_char();
-                        m_usb_tx_char(usb_rx_buffer[i]);
-                    }
-                    m_usb_tx_string("\n");
-                    hv_gains[I] = (int)(usb_rx_buffer[3]-'0') + 10*(int)(usb_rx_buffer[2]-'0') + 100*(int)(usb_rx_buffer[1]-'0') + 1000*(int)(usb_rx_buffer[0]-'0');
+                case I: // SET HV I GAIN
+                                        while(!m_usb_rx_available()){};
+                    usb_rx_buffer[i] = m_usb_rx_char();
+                    hv_gains[I] = ((uint16_t)(incoming&USB_VALUE_MSK)<<8) | usb_rx_buffer[0];
+                    outgoing = hv_gains[I];
                     break;
-                case 'D': // SET HV D GAIN
-                    for(i=0; i<USB_RX_BYTES; i++){
-                        while(!m_usb_rx_available()){};
-                        usb_rx_buffer[i] = m_usb_rx_char();
-                        m_usb_tx_char(usb_rx_buffer[i]);
-                    }
-                    m_usb_tx_string("\n");
-                    hv_gains[D] = (int)(usb_rx_buffer[3]-'0') + 10*(int)(usb_rx_buffer[2]-'0') + 100*(int)(usb_rx_buffer[1]-'0') + 1000*(int)(usb_rx_buffer[0]-'0');
+                case D: // SET HV D GAIN
+                    while(!m_usb_rx_available()){};
+                    usb_rx_buffer[i] = m_usb_rx_char();
+                    hv_gains[D] = ((uint16_t)(incoming&USB_VALUE_MSK)<<8) | usb_rx_buffer[0];
+                    outgoing = hv_gains[D];
                     break;
-                case 'H': // SET H-BRIDGE OUTPUTS
-                    for(i=0; i<USB_RX_BYTES; i++){
-                        while(!m_usb_rx_available()){};
-                        usb_rx_buffer[i] = m_usb_rx_char();
-                        m_usb_tx_char(usb_rx_buffer[i]);
-                    }
-                    m_usb_tx_string("\n");
-                    outputs[0] = (int)(usb_rx_buffer[0]-'0');
-                    outputs[1] = (int)(usb_rx_buffer[1]-'0');
-                    outputs[2] = (int)(usb_rx_buffer[2]-'0');
-                    outputs[3] = (int)(usb_rx_buffer[3]-'0');
+                case SET_H_STATUS: // SET H-BRIDGE OUTPUTS
+                    h_bridge_state = (h_bridge_state_t)(incoming&USB_VALUE_MSK);
+                    outgoing = hv_gains[h_bridge_state];
+                    break;
+                default:
+                    //invalid command
                     break;
             }
+            //bounce back set value
+            m_usb_tx_char((char)(outgoing>>8));
+            m_usb_tx_char((char)(outgoing));
+
         }
         
         if(tick){ // we've overrun the loop, which is bad
@@ -264,6 +263,38 @@ void init(void){
 
     sei();                   // enable interrupts
     
+}
+
+/**
+ * @brief sets the state of the H-bridge using predifined states to prevent accidental short of a sided (e.g. bit error)
+ * 
+ * @param state states of the H-bridge: LeftH_side, RightH_side, H_discharge
+ */
+void inline set_h_bridge(h_bridge_state_t state){
+    // disconnect bridge to ensure correct activation order 
+    clear(DDRC,6); // H-Left (C6)
+    clear(DDRB,6); // H-Right (B6)
+    clear(DDRB,7); // L-Left (B7)
+    clear(DDRB,5); // L-Right (B5)
+
+    switch (state)
+    {
+    case(H_off):
+        break;
+    case LeftH_side:
+    set(DDRB,5); // L-Right (B5)
+    set(DDRC,6); // H-Left (C6)
+        break;
+    case RightH_side:
+    set(DDRB,7); // L-Left (B7)
+    set(DDRB,6); // H-Right (B6)
+        break;
+    case H_discharge:    
+    set(DDRB,7); // L-Left (B7)
+    set(DDRB,5); // L-Right (B5)
+    default: // this state should never be reached
+        break;
+    }
 }
 
 ISR(TIMER0_OVF_vect){ // rolls over every 1.024 ms

@@ -42,8 +42,8 @@
 #define HV_FILTER_BETA  0
 
 // DEBUG Variables
-#define DEBUG_PWN		0
-#define DEBUG_OPTO		1
+#define DEBUG_PWN		1
+#define DEBUG_OPTO		0
 #define DEBUG_LED		0
 
 
@@ -68,7 +68,6 @@ typedef enum
 // FUNCTION PROTOTYPES
 void init(void);
 void leds(bool led_1, bool led_2);
-void inline set_pwm();
 void inline set_h_bridge(h_bridge_state_t state);
 
 volatile static bool tick = FALSE;
@@ -87,14 +86,15 @@ int main(void)
     double hv_feedback = 0.0, hv_filtered = 0.0, hv_p = 0.0, hv_i = 0.0, hv_d = 0.0, hv_p_last = 0.0, hv_output = 0.0;
 	uint8_t pmw_cycle = 0;
     h_bridge_state_t h_bridge_state = H_off;
-
+	
     int i = 0;
     init();
-#ifdef DEBUG_PWN
+	set_h_bridge(h_bridge_state);
+#if DEBUG_PWN
 	m_red(ON);
 	hv_gains[F] = 128;
-	hv_gains[P] = 128;
-	hv_target = 512; // 2.5V
+	hv_gains[P] = 0;
+	hv_target = 0; // 2.5V
 	m_wait(5000);
 	m_red(OFF);
 	m_green(ON);
@@ -114,14 +114,28 @@ int main(void)
 		outgoing = (pmw_cycle);
 		m_usb_tx_char((char)(outgoing));
 		m_usb_tx_char((char)(0));
+		uint16_t cnt = 0;
 	while(1){
+		
 		 while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
 		// increase the target:
 		
 		tick = FALSE;
 		        // read HV feedback (ADC in free-running mode, 5V = 1024)
         hv_feedback = ADC;
-        
+        if (cnt == 0)
+		{
+			hv_target = 0;
+		}
+		if (cnt == 4*4096)
+		{
+			hv_target = 512;
+		}
+		if (cnt == 8*4096)
+		{
+			hv_target = 512+128;
+		}
+		cnt++;
         // FIRST-ORDER LOW-PASS FILTER
         hv_filtered = HV_FILTER_BETA * hv_filtered + (1-HV_FILTER_BETA) * hv_feedback;
         
@@ -140,7 +154,7 @@ int main(void)
 		pmw_cycle = (hv_output/4); //convert double to uint16 
         OCR4D = pmw_cycle; // PWM output max 255
 		
-		outgoing = hv_p;
+		outgoing = hv_output;
 		m_usb_tx_char((char)(outgoing));
 		m_usb_tx_char((char)(outgoing>>8));
 		
@@ -148,7 +162,7 @@ int main(void)
 		m_usb_tx_char((char)(outgoing));
 		m_usb_tx_char((char)(outgoing>>8));
 		
-		outgoing = (hv_gains[P]/GAIN_DIVIDER) * hv_p;
+		outgoing = hv_target;
 		m_usb_tx_char((char)(outgoing));
 		m_usb_tx_char((char)(outgoing>>8));
 		
@@ -158,19 +172,29 @@ int main(void)
 	}
 
 #endif
-#ifdef DEBUG_OPTO
-	uint16_t count = 0;
+#if DEBUG_OPTO
+	OCR4D = 0;
 	while(1){
-		while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
-		// increase the target:
-		
-		tick = FALSE;
-		set_h_bridge(count++>>14);
-		
+	h_bridge_state = LeftH_side;
+	set_h_bridge(h_bridge_state);
+	m_red(ON);
+	m_wait(5000);
+	h_bridge_state = RightH_side;
+	set_h_bridge(h_bridge_state);
+	m_green(ON)
+	m_wait(5000);
+	h_bridge_state = H_discharge;
+	set_h_bridge(h_bridge_state);
+	m_red(OFF)
+	m_wait(5000);
+	h_bridge_state = H_off;
+	set_h_bridge(h_bridge_state);
+	m_green(OFF)
+	m_wait(5000);
 	}
 
 #endif
-#ifdef DEBUG_LED
+#if DEBUG_LED
 	while(1){
 		
 	}
@@ -364,8 +388,6 @@ void init(void){
     
 }
 
-void inline set_pwm(
-);
 
 /**
  * @brief sets the state of the H-bridge using predifined states to prevent accidental short of a sided (e.g. bit error)
@@ -374,26 +396,26 @@ void inline set_pwm(
  */
 void inline set_h_bridge(h_bridge_state_t state){
     // disconnect bridge to ensure correct activation order 
-    clear(DDRC,6); // H-Left (C6)
-    clear(DDRB,6); // H-Right (B6)
-    clear(DDRB,7); // L-Left (B7)
-    clear(DDRB,5); // L-Right (B5)
+    clear(PORTC,6); // H-Left (C6)
+    clear(PORTB,6); // H-Right (B6)
+    clear(PORTB,7); // L-Left (B7)
+    clear(PORTB,5); // L-Right (B5)
 
     switch (state)
     {
     case(H_off):
         break;
     case LeftH_side:
-    set(DDRB,5); // L-Right (B5)
-    set(DDRC,6); // H-Left (C6)
+    set(PORTB,5); // L-Right (B5)
+    set(PORTC,6); // H-Left (C6)
         break;
     case RightH_side:
-    set(DDRB,7); // L-Left (B7)
-    set(DDRB,6); // H-Right (B6)
+    set(PORTB,7); // L-Left (B7)
+    set(PORTB,6); // H-Right (B6)
         break;
     case H_discharge:    
-    set(DDRB,7); // L-Left (B7)
-    set(DDRB,5); // L-Right (B5)
+    set(PORTB,7); // L-Left (B7)
+    set(PORTB,5); // L-Right (B5)
     default: // this state should never be reached
         break;
     }

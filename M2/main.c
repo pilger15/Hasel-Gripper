@@ -42,8 +42,8 @@
 #define HV_FILTER_BETA  0
 
 // DEBUG Variables
-#define DEBUG_PWN		1
-#define DEBUG_OPTO		0
+#define DEBUG_PWN		0
+#define DEBUG_OPTO		1
 #define DEBUG_LED		0
 
 
@@ -126,15 +126,22 @@ int main(void)
         if (cnt == 0)
 		{
 			hv_target = 0;
+			m_red(OFF);
+			m_green(OFF);
 		}
-		if (cnt == 4*4096)
+		if (cnt == 3*4096)
 		{
-			hv_target = 512;
+			hv_target = 255;
+		m_red(ON);
+		m_green(OFF);
 		}
-		if (cnt == 8*4096)
+		if (cnt == 6*4095)
 		{
-			hv_target = 512+128;
+			hv_target = 2*255;
+					m_red(ON);
+					m_green(ON);
 		}
+
 		cnt++;
         // FIRST-ORDER LOW-PASS FILTER
         hv_filtered = HV_FILTER_BETA * hv_filtered + (1-HV_FILTER_BETA) * hv_feedback;
@@ -174,24 +181,16 @@ int main(void)
 #endif
 #if DEBUG_OPTO
 	OCR4D = 0;
-	while(1){
-	h_bridge_state = LeftH_side;
-	set_h_bridge(h_bridge_state);
-	m_red(ON);
-	m_wait(5000);
-	h_bridge_state = RightH_side;
-	set_h_bridge(h_bridge_state);
-	m_green(ON)
-	m_wait(5000);
-	h_bridge_state = H_discharge;
-	set_h_bridge(h_bridge_state);
-	m_red(OFF)
-	m_wait(5000);
-	h_bridge_state = H_off;
-	set_h_bridge(h_bridge_state);
-	m_green(OFF)
-	m_wait(5000);
+	set_h_bridge(0);
+while(1){
+	if(m_usb_rx_available()){
+		h_bridge_state = m_usb_rx_char();
+		//outgoing = hv_gains[h_bridge_state];
+		set_h_bridge(h_bridge_state);
 	}
+	
+	
+}
 
 #endif
 #if DEBUG_LED

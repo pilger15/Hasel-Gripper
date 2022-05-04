@@ -29,16 +29,23 @@
 #define I               2
 #define D               3
 */
-#define HV_GAIN_F       0
+#define HV_GAIN_F       0	
 #define HV_GAIN_P       0
 #define HV_GAIN_I       0
 #define HV_GAIN_D       0
 
 #define HV_SCALE_I      1
 #define HV_SCALE_D      1
+#define GAIN_DIVIDER	128.0
 
 // 0 = no filtering, 1 = too much filtering
 #define HV_FILTER_BETA  0
+
+// DEBUG Variables
+#define DEBUG_PWN		0
+#define DEBUG_OPTO		1
+#define DEBUG_LED		0
+
 
 typedef enum
 {
@@ -61,6 +68,7 @@ typedef enum
 // FUNCTION PROTOTYPES
 void init(void);
 void leds(bool led_1, bool led_2);
+void inline set_pwm();
 void inline set_h_bridge(h_bridge_state_t state);
 
 volatile static bool tick = FALSE;
@@ -72,21 +80,46 @@ int main(void)
     uint16_t outgoing = 0;
     char usb_rx_buffer[USB_RX_BYTES];
     
-    uint16_t hv_target = 0; // RANGE = 0 to 8191 (13bit)
+    uint16_t hv_target = 0; // RANGE = 0 to 1023 (ADC range)
     //int outputs[4] = {0,0,0,0}; // H-L, L-L, H-R, L-R
-    uint16_t hv_gains[4] = {HV_GAIN_F,HV_GAIN_P,HV_GAIN_I,HV_GAIN_D}; //F, P, I, D // RANGE = 0 to 8191 (13bit)
+    double hv_gains[4] = {HV_GAIN_F,HV_GAIN_P,HV_GAIN_I,HV_GAIN_D}; //F, P, I, D }FPID: RANGE = 0 to 8191 (13bit)>>GAIN_SHIFT | (@GAINSHIFT=7 => (0:0.0078125:(641-0.0078125))
 
     double hv_feedback = 0.0, hv_filtered = 0.0, hv_p = 0.0, hv_i = 0.0, hv_d = 0.0, hv_p_last = 0.0, hv_output = 0.0;
+	uint8_t pmw_cycle = 0;
     h_bridge_state_t h_bridge_state = H_off;
 
     int i = 0;
     init();
-    while(1)
-    {
-        while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
-        tick = FALSE;
-        
-        // read HV feedback (ADC in free-running mode, 5V = 1024)
+#ifdef DEBUG_PWN
+	m_red(ON);
+	hv_gains[F] = 128;
+	hv_gains[P] = 128;
+	hv_target = 512; // 2.5V
+	m_wait(5000);
+	m_red(OFF);
+	m_green(ON);
+	
+		outgoing = hv_target;
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(outgoing>>8));
+		
+		outgoing = hv_filtered;
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(outgoing>>8));
+		
+		outgoing = hv_p;
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(outgoing>>8));
+		
+		outgoing = (pmw_cycle);
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(0));
+	while(1){
+		 while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
+		// increase the target:
+		
+		tick = FALSE;
+		        // read HV feedback (ADC in free-running mode, 5V = 1024)
         hv_feedback = ADC;
         
         // FIRST-ORDER LOW-PASS FILTER
@@ -103,8 +136,72 @@ int main(void)
         hv_d = (hv_p - hv_p_last) * HV_SCALE_D;
         
         // OUTPUT
-        hv_output = hv_gains[F] * hv_target + hv_gains[P] * hv_p + hv_gains[I] * hv_i + hv_gains[D] * hv_d;
-        OCR4D = hv_output; // PWM output max 1023
+        hv_output = (hv_gains[F]/GAIN_DIVIDER) * hv_target + (hv_gains[P]/GAIN_DIVIDER) * hv_p + (hv_gains[I]/GAIN_DIVIDER) * hv_i + (hv_gains[D]/GAIN_DIVIDER) * hv_d;
+		pmw_cycle = (hv_output/4); //convert double to uint16 
+        OCR4D = pmw_cycle; // PWM output max 255
+		
+		outgoing = hv_p;
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(outgoing>>8));
+		
+		outgoing = hv_feedback;
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(outgoing>>8));
+		
+		outgoing = (hv_gains[P]/GAIN_DIVIDER) * hv_p;
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(outgoing>>8));
+		
+		outgoing = (pmw_cycle);
+		m_usb_tx_char((char)(outgoing));
+		m_usb_tx_char((char)(0));
+	}
+
+#endif
+#ifdef DEBUG_OPTO
+	uint16_t count = 0;
+	while(1){
+		while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
+		// increase the target:
+		
+		tick = FALSE;
+		set_h_bridge(count++>>14);
+		
+	}
+
+#endif
+#ifdef DEBUG_LED
+	while(1){
+		
+	}
+
+#endif
+	
+    while(1)
+    {
+        while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
+		tick = FALSE;
+		
+		// read HV feedback (ADC in free-running mode, 5V = 1024)
+		hv_feedback = ADC;
+		
+		// FIRST-ORDER LOW-PASS FILTER
+		hv_filtered = HV_FILTER_BETA * hv_filtered + (1-HV_FILTER_BETA) * hv_feedback;
+		
+		// PROPORTIONAL
+		hv_p_last = hv_p; // store for the derivative calculation
+		hv_p = hv_target - hv_filtered;
+		
+		// INTEGRAL
+		hv_i += hv_p * HV_SCALE_I;
+
+		// DERIVATIVE
+		hv_d = (hv_p - hv_p_last) * HV_SCALE_D;
+		
+		// OUTPUT
+		hv_output = (hv_gains[F]/GAIN_DIVIDER) * hv_target + (hv_gains[P]/GAIN_DIVIDER) * hv_p + (hv_gains[I]/GAIN_DIVIDER) * hv_i + (hv_gains[D]/GAIN_DIVIDER) * hv_d;
+		pmw_cycle = (hv_output/4); //convert double to uint16
+		OCR4D = pmw_cycle; // PWM output max 255
 
 
         set_h_bridge(h_bridge_state);
@@ -126,6 +223,7 @@ int main(void)
                     while(!m_usb_rx_available()){};
                     usb_rx_buffer[i] = m_usb_rx_char();
                     hv_target = ((uint16_t)(incoming&USB_VALUE_MSK)<<8) | usb_rx_buffer[0];
+					hv_target = (hv_target<1024) ? hv_target : 1023; // target <= 1024
                     outgoing = hv_target;
                     break;
                 case F: // SET HV F GAIN
@@ -161,8 +259,9 @@ int main(void)
                     break;
             }
             //bounce back set value
+			m_usb_tx_char((char)(outgoing));
             m_usb_tx_char((char)(outgoing>>8));
-            m_usb_tx_char((char)(outgoing));
+            
 
         }
         
@@ -264,6 +363,9 @@ void init(void){
     sei();                   // enable interrupts
     
 }
+
+void inline set_pwm(
+);
 
 /**
  * @brief sets the state of the H-bridge using predifined states to prevent accidental short of a sided (e.g. bit error)

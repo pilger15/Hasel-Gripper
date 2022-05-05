@@ -42,8 +42,8 @@
 #define HV_FILTER_BETA  0
 
 // DEBUG Variables
-#define DEBUG_PWN		0
-#define DEBUG_OPTO		1
+#define DEBUG_PWN		1		
+#define DEBUG_OPTO		0
 #define DEBUG_LED		0
 
 
@@ -79,7 +79,7 @@ int main(void)
     uint16_t outgoing = 0;
     char usb_rx_buffer[USB_RX_BYTES];
     
-    uint16_t hv_target = 0; // RANGE = 0 to 1023 (ADC range)
+    uint16_t hv_target = 1023; // RANGE = 0 to 1023 (ADC range)
     //int outputs[4] = {0,0,0,0}; // H-L, L-L, H-R, L-R
     double hv_gains[4] = {HV_GAIN_F,HV_GAIN_P,HV_GAIN_I,HV_GAIN_D}; //F, P, I, D }FPID: RANGE = 0 to 8191 (13bit)>>GAIN_SHIFT | (@GAINSHIFT=7 => (0:0.0078125:(641-0.0078125))
 
@@ -89,12 +89,14 @@ int main(void)
 	
     int i = 0;
     init();
+	OCR4D = 0xFF;
 	set_h_bridge(h_bridge_state);
 #if DEBUG_PWN
+	set_h_bridge(H_off);
 	m_red(ON);
 	hv_gains[F] = 128;
 	hv_gains[P] = 0;
-	hv_target = 0; // 2.5V
+	hv_target = 1023; // 2.5V
 	m_wait(5000);
 	m_red(OFF);
 	m_green(ON);
@@ -125,20 +127,20 @@ int main(void)
         hv_feedback = ADC;
         if (cnt == 0)
 		{
-			hv_target = 0;
+			hv_target = 1023;
 			m_red(OFF);
 			m_green(OFF);
 		}
-		if (cnt == 3*4096)
+		if (cnt == 0x5555)
 		{
-			hv_target = 255;
+			hv_target = 921;
 		m_red(ON);
 		m_green(OFF);
 		}
-		if (cnt == 6*4095)
+		if (cnt == 0xAAAA)
 		{
-			hv_target = 2*255;
-					m_red(ON);
+			hv_target = 716;
+					m_red(OFF);
 					m_green(ON);
 		}
 

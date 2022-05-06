@@ -41,8 +41,12 @@
 // 0 = no filtering, 1 = too much filtering
 #define HV_FILTER_BETA  0
 
-// DEBUG Variables
-#define DEBUG_PWN		1		
+// Duty cycle capped to prevent excessive voltage
+#define DUTY_CAP		717 // 70%
+
+// Routines always only have 
+#define GRIPPER_ROUTINE 1
+#define DEBUG_PWM		0		
 #define DEBUG_OPTO		0
 #define DEBUG_LED		0
 
@@ -68,7 +72,14 @@ typedef enum
 // FUNCTION PROTOTYPES
 void init(void);
 void leds(bool led_1, bool led_2);
+void set_LED_RED(bool led);
+void set_LED_YLW(bool led);
 void inline set_h_bridge(h_bridge_state_t state);
+
+void inline set_dutyccycle(double hv_output);
+
+// ROUTINES
+void debug_pwm();
 
 volatile static bool tick = FALSE;
 
@@ -84,39 +95,104 @@ int main(void)
     double hv_gains[4] = {HV_GAIN_F,HV_GAIN_P,HV_GAIN_I,HV_GAIN_D}; //F, P, I, D }FPID: RANGE = 0 to 8191 (13bit)>>GAIN_SHIFT | (@GAINSHIFT=7 => (0:0.0078125:(641-0.0078125))
 
     double hv_feedback = 0.0, hv_filtered = 0.0, hv_p = 0.0, hv_i = 0.0, hv_d = 0.0, hv_p_last = 0.0, hv_output = 0.0;
-	uint8_t pmw_cycle = 0;
     h_bridge_state_t h_bridge_state = H_off;
 	
     int i = 0;
     init();
-	OCR4D = 0xFF;
 	set_h_bridge(h_bridge_state);
-#if DEBUG_PWN
+	
+#if GRIPPER_ROUTINE
+/************************************************************************
+* This routine goes through following steps
+* 1) 5s wait -> M2 green
+* 2) 5s charge: duty cycle 85% -> ~6kV -> M2 red
+* 3) 5s enable Left_High and Right_Low 
+* 4) 5s discharge -> enable Left_low and Right_Low
+* 5) 5s enable Right_High and Left_Low
+* 6) 5s discharge -> enable Left_low and Right_Low
+* 7) finish -> 100% duty cycle all opto diodes disabled M2 red(off)
+************************************************************************/
+	double HighVoltage = 1023*0.85; // set duty cycle to 85 %
+	double LowVoltage = 1023; // set duty cycle to 85 %
+	const uint16_t wait_time = 39063; 
+	typedef enum{
+		state_1_wait,
+		state_2_charge,
+		state_3_LeftH,
+		state_4_disC,
+		state_5_RightH,
+		state_6_disC,
+		state_7_finish
+		}t_state_machine;
+	bool statechange = TRUE;
+	t_state_machine current_state = state_1_wait;
+	uint16_t timercounter = 0;
+	uint16_t timerovf = wait_time;
+	while(1)
+    {
+        while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
+		tick = FALSE;
+		hv_feedback = ADC;
+		if(statechange){ // on state change
+			statechange = FALSE;
+			switch(current_state)
+			{
+				case state_1_wait:
+					timerovf = wait_time;
+					m_green(ON);
+					break;
+				case state_2_charge:
+					timerovf = wait_time;
+					m_red(ON);
+					set_dutyccycle(HighVoltage);
+					break;
+				case state_3_LeftH:
+					timerovf = wait_time;
+					set_h_bridge(LeftH_side);
+					break;
+				case state_4_disC:
+					timerovf = wait_time;
+					set_h_bridge(H_discharge);
+					break;
+				case state_5_RightH:
+					timerovf = wait_time;
+					set_h_bridge(RightH_side);
+					break;
+				case state_6_disC:
+					timerovf = wait_time;
+					set_h_bridge(H_discharge);
+					break;
+				case state_7_finish:
+					set_h_bridge(H_off);
+					set_dutyccycle(LowVoltage); // turn HV off
+					m_red(OFF);
+					m_green(OFF);
+					break;
+			}
+		}
+		if(timercounter == timerovf && current_state < state_7_finish) // timer
+		{ 
+			current_state++;
+			statechange = TRUE;
+		}
+		timercounter++;
+        
+		if(hv_feedback>40){// HV_LED if ADC voltage is > 200mV => 425 V at HV output
+			set_LED_RED(TRUE);
+			}else{
+			set_LED_RED(FALSE);
+		}
+    }
+#endif	// GRIPPER_ROUTINE
+#if DEBUG_PWM
 	set_h_bridge(H_off);
 	m_red(ON);
 	hv_gains[F] = 128;
 	hv_gains[P] = 0;
 	hv_target = 1023; // 2.5V
-	m_wait(5000);
 	m_red(OFF);
 	m_green(ON);
-	
-		outgoing = hv_target;
-		m_usb_tx_char((char)(outgoing));
-		m_usb_tx_char((char)(outgoing>>8));
-		
-		outgoing = hv_filtered;
-		m_usb_tx_char((char)(outgoing));
-		m_usb_tx_char((char)(outgoing>>8));
-		
-		outgoing = hv_p;
-		m_usb_tx_char((char)(outgoing));
-		m_usb_tx_char((char)(outgoing>>8));
-		
-		outgoing = (pmw_cycle);
-		m_usb_tx_char((char)(outgoing));
-		m_usb_tx_char((char)(0));
-		uint16_t cnt = 0;
+	uint16_t cnt = 0;
 	while(1){
 		
 		 while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
@@ -125,26 +201,11 @@ int main(void)
 		tick = FALSE;
 		        // read HV feedback (ADC in free-running mode, 5V = 1024)
         hv_feedback = ADC;
-        if (cnt == 0)
+		if (cnt++ == 0xFFFF)//~8s
 		{
-			hv_target = 1023;
-			m_red(OFF);
-			m_green(OFF);
-		}
-		if (cnt == 0x5555)
-		{
-			hv_target = 921;
-		m_red(ON);
-		m_green(OFF);
-		}
-		if (cnt == 0xAAAA)
-		{
-			hv_target = 716;
-					m_red(OFF);
-					m_green(ON);
+			hv_target = (hv_target > 750) ? hv_target-51 : 1023;
 		}
 
-		cnt++;
         // FIRST-ORDER LOW-PASS FILTER
         hv_filtered = HV_FILTER_BETA * hv_filtered + (1-HV_FILTER_BETA) * hv_feedback;
         
@@ -160,9 +221,14 @@ int main(void)
         
         // OUTPUT
         hv_output = (hv_gains[F]/GAIN_DIVIDER) * hv_target + (hv_gains[P]/GAIN_DIVIDER) * hv_p + (hv_gains[I]/GAIN_DIVIDER) * hv_i + (hv_gains[D]/GAIN_DIVIDER) * hv_d;
-		pmw_cycle = (hv_output/4); //convert double to uint16 
-        OCR4D = pmw_cycle; // PWM output max 255
+		set_dutyccycle(hv_output);
 		
+		if(hv_feedback>40){// HV_LED if ADC voltage is > 200mV => 425 V at HV output
+			set_LED_RED(TRUE);
+			}else{
+			set_LED_RED(FALSE);
+		}
+		/*
 		outgoing = hv_output;
 		m_usb_tx_char((char)(outgoing));
 		m_usb_tx_char((char)(outgoing>>8));
@@ -178,6 +244,11 @@ int main(void)
 		outgoing = (pmw_cycle);
 		m_usb_tx_char((char)(outgoing));
 		m_usb_tx_char((char)(0));
+		*/
+		
+		if(tick){ // we've overrun the loop, which is bad
+			m_red(ON);
+		}
 	}
 
 #endif
@@ -225,9 +296,7 @@ while(1){
 		
 		// OUTPUT
 		hv_output = (hv_gains[F]/GAIN_DIVIDER) * hv_target + (hv_gains[P]/GAIN_DIVIDER) * hv_p + (hv_gains[I]/GAIN_DIVIDER) * hv_i + (hv_gains[D]/GAIN_DIVIDER) * hv_d;
-		pmw_cycle = (hv_output/4); //convert double to uint16
-		OCR4D = pmw_cycle; // PWM output max 255
-
+		set_dutyccycle(hv_output);
 
         set_h_bridge(h_bridge_state);
 
@@ -289,7 +358,11 @@ while(1){
             
 
         }
-        
+		if(hv_feedback>40){// HV_LED if ADC voltage is > 200mV => 425 V at HV output
+			set_LED_RED(TRUE);
+			}else{
+			set_LED_RED(FALSE);
+		}
         if(tick){ // we've overrun the loop, which is bad
             m_red(ON);
         }
@@ -308,7 +381,22 @@ void leds(bool led_1, bool led_2){
         clear(PORTB,1);
     }
 }
-
+void set_LED_RED(bool led){
+	if(led){
+		set(PORTB,0);
+		} else {
+		clear(PORTB,0);
+	}
+	
+}
+void set_LED_YLW(bool led){
+    if(led){
+	    set(PORTB,1);
+	    } else {
+	    clear(PORTB,1);
+    }
+	
+}
 void init(void){
     
     // GENERAL
@@ -347,7 +435,7 @@ void init(void){
     TCNT4 = 0;              // clear the counter
     OCR4D = 0;              // set duty cycle to zero
 
-    clear(TCCR4D,WGM41);    // up to OCR4C (max 1023)
+    clear(TCCR4D,WGM41);    // up to OCR4C (max 255)
     clear(TCCR4D,WGM40);    // ^
     
     TC4H = 0x00;            // TOP value of 255, frequency of 7.8kHz
@@ -386,7 +474,8 @@ void init(void){
     // MISC -------------------------------------
 
     sei();                   // enable interrupts
-    
+	set_LED_RED(FALSE);
+	set_LED_YLW(TRUE);
 }
 
 
@@ -421,7 +510,18 @@ void inline set_h_bridge(h_bridge_state_t state){
         break;
     }
 }
-
-ISR(TIMER0_OVF_vect){ // rolls over every 1.024 ms
+/**
+ * @brief sets dutycycle of the PWM signal
+ * 
+ * @param hv_output the result of the PID 
+ */
+void inline set_dutyccycle(double hv_output){
+uint8_t pwm_cycle = ((hv_output/4) > (DUTY_CAP/4)) ? (hv_output/4) : DUTY_CAP/4; //convert double to uint8 an cap duty cycle
+OCR4D = pwm_cycle; // PWM output max 255
+}
+ISR(TIMER0_OVF_vect){ // rolls over every 1.024 ms (Julian: I think it's actually 0.1280 ms at 7812.5Hz?)
     tick = TRUE;
 }
+
+
+

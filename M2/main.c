@@ -85,7 +85,7 @@ volatile static bool tick = FALSE;
 
 int main(void)
 {
-    
+   
     char incoming = 0; 
     uint16_t outgoing = 0;
     char usb_rx_buffer[USB_RX_BYTES];
@@ -99,6 +99,7 @@ int main(void)
 	
     int i = 0;
     init();
+	set_dutyccycle(1023);
 	set_h_bridge(h_bridge_state);
 	
 #if GRIPPER_ROUTINE
@@ -112,9 +113,9 @@ int main(void)
 * 6) 5s discharge -> enable Left_low and Right_Low
 * 7) finish -> 100% duty cycle all opto diodes disabled M2 red(off)
 ************************************************************************/
-	double HighVoltage = 1023*0.85; // set duty cycle to 85 %
-	double LowVoltage = 1023; // set duty cycle to 85 %
-	const uint16_t wait_time = 39063; 
+	double HighVoltage = 1023*0.837; // set duty cycle to 83.7% for 6.5 kV
+	double LowVoltage = 1023; // set duty cycle to 100 %
+	const uint16_t wait_time = 39063;
 	typedef enum{
 		state_1_wait,
 		state_2_charge,
@@ -122,12 +123,14 @@ int main(void)
 		state_4_disC,
 		state_5_RightH,
 		state_6_disC,
-		state_7_finish
+		state_7_LeftH,
+		state_8_disC,
+		state_9_finish
 		}t_state_machine;
 	bool statechange = TRUE;
 	t_state_machine current_state = state_1_wait;
-	uint16_t timercounter = 0;
-	uint16_t timerovf = wait_time;
+	uint32_t timercounter = 0;
+	uint32_t timerovf = wait_time;
 	while(1)
     {
         while(!tick){} // fixed timing at 7812.5 Hz (this may be a bit too aggress for the USB comms, let's see)
@@ -138,31 +141,43 @@ int main(void)
 			switch(current_state)
 			{
 				case state_1_wait:
-					timerovf = wait_time;
+					timerovf = 7812.5*3.61;
 					m_green(ON);
 					break;
 				case state_2_charge:
-					timerovf = wait_time;
+					timerovf = 7812.5*3.61;
 					m_red(ON);
 					set_dutyccycle(HighVoltage);
 					break;
 				case state_3_LeftH:
-					timerovf = wait_time;
+					timerovf = 7812.5*3.61;
+					set_LED_RED(TRUE);
 					set_h_bridge(LeftH_side);
 					break;
 				case state_4_disC:
-					timerovf = wait_time;
+					timerovf = 7812.5*16.16;
+					set_LED_RED(FALSE);
 					set_h_bridge(H_discharge);
 					break;
 				case state_5_RightH:
-					timerovf = wait_time;
+					timerovf = 7812.5*11.17;
+					set_LED_RED(TRUE);
 					set_h_bridge(RightH_side);
 					break;
 				case state_6_disC:
-					timerovf = wait_time;
+					timerovf = 7812.5*14.36;
+					set_LED_RED(FALSE);
 					set_h_bridge(H_discharge);
 					break;
-				case state_7_finish:
+				case state_7_LeftH:
+					timerovf = 7812.5*9.19;
+					set_LED_RED(TRUE);
+					set_h_bridge(LeftH_side);
+				case state_8_disC:
+					timerovf = 7812.5*14.25;
+					set_LED_RED(FALSE);
+					set_h_bridge(H_discharge);
+				case state_9_finish:
 					set_h_bridge(H_off);
 					set_dutyccycle(LowVoltage); // turn HV off
 					m_red(OFF);
@@ -170,18 +185,19 @@ int main(void)
 					break;
 			}
 		}
-		if(timercounter == timerovf && current_state < state_7_finish) // timer
+		if(timercounter >= timerovf && current_state < state_9_finish) // timer
 		{ 
 			current_state++;
+			timercounter = 0;
 			statechange = TRUE;
 		}
 		timercounter++;
         
-		if(hv_feedback>40){// HV_LED if ADC voltage is > 200mV => 425 V at HV output
-			set_LED_RED(TRUE);
-			}else{
-			set_LED_RED(FALSE);
-		}
+		//if(hv_feedback>40){// HV_LED if ADC voltage is > 200mV => 425 V at HV output
+		//	set_LED_RED(TRUE);
+		//	}else{
+		//	set_LED_RED(FALSE);
+		//}
     }
 #endif	// GRIPPER_ROUTINE
 #if DEBUG_PWM
@@ -433,7 +449,7 @@ void init(void){
     
     // BUCK CONTROL (PWM, OC4D on pin D7)
     TCNT4 = 0;              // clear the counter
-    OCR4D = 0;              // set duty cycle to zero
+    OCR4D = 0;           // set duty cycle to 100%
 
     clear(TCCR4D,WGM41);    // up to OCR4C (max 255)
     clear(TCCR4D,WGM40);    // ^
@@ -511,7 +527,7 @@ void inline set_h_bridge(h_bridge_state_t state){
     }
 }
 /**
- * @brief sets dutycycle of the PWM signal
+ * @brief sets dutycycle of the PWM signal 1023 = 100%
  * 
  * @param hv_output the result of the PID 
  */

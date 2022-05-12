@@ -7,5 +7,9 @@
 % 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function close_controller(handle)
-
-fclose(handle);
+% check matlab version
+if verLessThan('matlab', '9.9')
+    fclose(handle);
+else
+    delete(handle);
+end

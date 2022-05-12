@@ -1,38 +1,42 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-% SET_GAIN_D(HANDLE,value)
+% SET_GAIN_P(HANDLE,value)
 %
 % takes:
 %   HANDLE is the serial-port ID from OPEN_CONTROLLER.
-%   D is the derivative gain (integer between 0 and 9999)
+%   D is the derivative gain (between 0 : 0.25 : 7.75)
 %
-% create and sends a 5-byte serial messages of the format:
+% create and sends a 8-bit serial messages of the format:
 %
-% 'DXXXX'
+% 'CCCV VVVV'
+%C = Command bits V = Value bits
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function set_gains(handle,value)
+function output = set_gain_d(handle,value)
 
-if(value<0)
+CommandBits = 0x60; % command for 'D'
+if value > 7.75
+    value = 7.75;
+    warning('Value out of range (0.00 : 0.25 : 7.75).  Set to 7.75')
+elseif value < 0
     value = 0;
+    warning('Value out of range (0.00 : 0.25 : 7.75).  Set to 0.00')
 end
-if(value>9999)
-    value = 9999;
-end
-value_string = num2str(value);
-if(size(value_string,2)==3)
-    value_string = ['0' value_string];
-elseif(size(value_string,2)==2)
-    value_string = ['00' value_string];
-elseif(size(value_string,2)==1)
-    value_string = ['000' value_string];
-end
+value = value * 4; % scale to 5 bit value
+    
+    message = CommandBits + value;
 
-% form the message
-message = ['D' value_string ' '];
-
-% send the message to the M2
-for i = 1:size(message,2)
-    fprintf(handle,message(i))
+    % check matlab version
+    if verLessThan('matlab', '9.9')
+        fprintf(handle,message);
+                while(handle.NumBytesAvailable < 2)
+        end
+        output = fscanf(handle);
+    else
+        write(handle,message,'uint8');
+                while(handle.NumBytesAvailable < 2)
+        end
+        output = read(handle,1,'uint16');       
+    end
+    disp(['D set to ',num2str(output/4)]);
 end
-disp(fscanf(handle))

@@ -10,9 +10,12 @@
 % 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function [handle] = open_controller(port)
-
-handle = serial(port,'BaudRate',9600);
-
-fopen(handle);
+% check matlab version
+if verLessThan('matlab', '9.9')
+    handle = serial(port,'BaudRate',9600);
+    fopen(handle);
+else
+    handle = serialport(port,9600);
+end
 
 end

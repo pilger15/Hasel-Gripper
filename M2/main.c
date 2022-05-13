@@ -1,5 +1,6 @@
 #include "m_general.h"
 #include "m_usb.h"
+#include "pwm_lookup.h"
 
 // IO
 // ---------------------
@@ -227,7 +228,7 @@ int main(void)
 		
 		// OUTPUT
 		//hv_output =		(hv_gains[F]/GAIN_DIVIDER) * hv_target + (hv_gains[P]/GAIN_DIVIDER) * hv_p + (hv_gains[I]/GAIN_DIVIDER) * hv_i + (hv_gains[D]/GAIN_DIVIDER) * hv_d;
-		hv_output =		(hv_target	* hv_gains[F])	>>GAIN_SHIFT; 
+		hv_output =		1023-pwm_lookup[hv_target];// //(hv_target	* hv_gains[F])	>>GAIN_SHIFT; 
 		hv_output +=	(hv_p		* hv_gains[P])	>>GAIN_SHIFT;
 		hv_output +=	(hv_i		* hv_gains[I])	>>GAIN_SHIFT;
 		hv_output +=	(hv_d		* hv_gains[D])	>>GAIN_SHIFT;

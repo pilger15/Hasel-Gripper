@@ -1,43 +1,33 @@
 SERIAL_PORT = 'COM3';       % change to device port
-BAUD_RATE =  115200;
-first = true;
-test = [1,2,3];
-s = serialport(SERIAL_PORT, BAUD_RATE);
-clear stream
-flush(s);
-data = [0,0];
-while first
-    if floor(s.NumBytesAvailable)> 2*4
-    stream = read(s,4,'uint16');
-    first = false;
-    end
-end
-plot(1,1);
-while true
-    n = floor(s.NumBytesAvailable/2);
-    if n > 100
-        stream = horzcat(stream,read(s,n,'uint16'));
-        target = stream(1:4:end);
-        filtered = stream(2:4:end);
-        error = stream(3:4:end);
-        pmw = stream(4:4:end);
-     %    data = reshape(stream,[],2);
-         subplot(4,1,1); 
-         title('output');
-         plot(target)
-         
-         subplot(4,1,2); 
-         title('ADC');
-         plot(filtered)
-  
-         subplot(4,1,3);
-         title('Target*gain');
-         plot(error)
-   
-         subplot(4,1,4)
-         title('PMW');
-         plot(pmw)
-         %legend('ADC','Error','PWM')
-         pause(0.1);
-    end
-end
+
+targetVoltage = 6000;
+p_gain = 1;
+i_gain = 0;
+d_gain = 0;
+
+% connect to the M2 @ SERIAL_PORT
+M2 = open_controller(SERIAL_PORT);
+
+% set the target voltage
+HighVoltageMessage = set_v(M2,targetVoltage); 
+
+% set the p gain between 0 : 0.25 : 7.75
+p_gain_message = set_gain_p(M2,p_gain); 
+% set the i gain between 0 : 0.25 : 7.75
+i_gain_message = set_gain_i(M2,i_gain); 
+% set the d gain between 0 : 0.25 : 7.75
+d_gain_message = set_gain_d(M2,d_gain); 
+
+%% control the H_Bridge
+%   states:
+%       0 - 'H_OFF'     All opto diodes are OFF
+%       1 - 'H_LEFT'    H-L and L-R are ON 
+%       2 - 'H_RIGHT'   H-R and L-L are ON
+%       3 - 'H_DIS'     L-L and L-R are ON
+
+current_state = set_outputs(M2,'H_OFF');
+% current_state = set_outputs(M2,0); % alternative 
+
+
+% disconnect the controller
+close_controller(M2); 

@@ -89,6 +89,7 @@ int main(void)
     uint16_t incoming = 0; 
     uint16_t outgoing = 0;
     uint8_t usb_rx_buffer;
+	uint8_t usb_tx_buffer[64];
     
     uint16_t hv_target = 0; // RANGE = 0 to 1023 (ADC range)
     //int outputs[4] = {0,0,0,0}; // H-L, L-L, H-R, L-R
@@ -342,6 +343,9 @@ void init(void){
     // LED 2
     set(DDRB,1);            // output
     clear(PORTB,1);         // default OFF
+	
+	// HV_Enable 
+	clear(DDRE,6);            // sense only
 
     // TIMERS ------------------------------------
     

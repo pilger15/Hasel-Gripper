@@ -19,7 +19,7 @@
 % 'CCCV VVVV'
 %C = Command bits V = Value bits
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function output = set_outputs(handle,state)
+function output = set_h_bridge(handle,state)
 
     CommandBits = 0xA0;
 

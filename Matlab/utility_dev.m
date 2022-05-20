@@ -1,7 +1,7 @@
 
 SERIAL_PORT = 'COM4';       % change to device port
 STREAM_DATA = true;         % stream the HV_output data
-targetVoltage = 000;
+targetVoltage = 5000;
 
 R1 = 1000e6;
 R2 = 470e3;
@@ -12,9 +12,9 @@ global i_gain;
 global d_gain;
 global M2;
 
-p_gain = 2.5;
+p_gain = 20;
 i_gain = 0;
-d_gain = 0;
+d_gain = 5;
 
 % connect to the M2 @ SERIAL_PORT
 if(exist('M2'))
@@ -56,9 +56,7 @@ if(STREAM_DATA)
     first = true;
     
     %start streaming
-    set_streaming(M2,1);
-    streaming = 
-    
+    streaming = set_streaming(M2,1);
     while(streaming) % wait till button is pressed
         n = (M2.NumBytesAvailable/64);
         if(n>=1)
@@ -66,8 +64,9 @@ if(STREAM_DATA)
                 stream = read(M2,n*32,'int16').*gain*ADC_to_U;
                 first = false;
             else
-                stream = horzcat(stream,read(M2,n*32,'int16'));
+                stream = horzcat(stream,read(M2,n*32,'int16').*gain*ADC_to_U);
             end
+            
             pause(0.1);
             time = (1:length(stream))./7812.5;
             plot(time,stream);
@@ -90,7 +89,21 @@ function PushB(hObject,eventdata)
     set_h_bridge(M2,'H_DIS');
     pause(1);
     set_h_bridge(M2,'H_OFF');
-    
+    pause(0.1);
+    flush(M2);
+    write(M2,0xE0,"uint8"); % dump parameters
+    disp(["Disconnected..."]);
+    disp(["..."]);
+    disp(["..."]);
+    pause(0.1);
+    p = read(M2,1,"uint8");
+    i = read(M2,1,"uint8");
+    d = read(M2,1,"uint8");
+    target = read(M2,1,"uint8");
+    disp(['P set to ',num2str(p/4)]);
+    disp(['I set to ',num2str(i/4)]);
+    disp(['D set to ',num2str(d/4)]);
+    disp(['Target set to ',num2str(target)]);
 end
 function PushL(hObject,eventdata)
     global M2

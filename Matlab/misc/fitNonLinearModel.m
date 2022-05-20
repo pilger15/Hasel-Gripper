@@ -33,7 +33,7 @@ subplot(3,1,2);plot(ix,tbl);
 % %%create lookup table
 a = tbl;
 a(1:37)= 1023;
-abit = uint16(flip(a));
+abit = uint16(a);
 subplot(3,1,3);plot(abit)
 writematrix(abit','pwm_lookup.csv');
 

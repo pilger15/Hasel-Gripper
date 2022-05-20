@@ -15,14 +15,14 @@
 function output = set_gain_p(handle,value)
 
 CommandBits = 0x20; % command for 'P'
-if value > 7.75
-    value = 7.75;
-    warning('Value out of range (0.00 : 0.25 : 7.75).  Set to 7.75')
+if value > 31
+    value = 31;
+    warning('Value out of range (0.00 : 1 : 31).  Set to 31')
 elseif value < 0
     value = 0;
     warning('Value out of range (0.00 : 0.25 : 7.75).  Set to 0.00')
 end
-value = value * 4; % scale to 5 bit value
+value = value; % scale to 5 bit value
     
     message = CommandBits + value;
 
@@ -35,5 +35,5 @@ value = value * 4; % scale to 5 bit value
         write(handle,message,'uint8');
         output = read(handle,1,'uint16');
     end
-    disp(['P set to ',num2str(output/4)]);
+    disp(['P set to ',num2str(output)]);
 end

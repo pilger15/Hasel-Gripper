@@ -87,7 +87,7 @@ void set_LED_RED(bool led);
 void set_LED_YLW(bool led);
 void inline set_h_bridge(h_bridge_state_t state);
 
-void inline set_dutyccycle(uint16_t hv_output);
+void inline set_dutycycle(uint16_t hv_output);
 
 
 volatile static bool tick = FALSE;
@@ -111,7 +111,7 @@ int main(void)
 	uint8_t steam_cnt = 0;
 	
     init();
-	set_dutyccycle(1023);
+	set_dutycycle(1023);
 	set_h_bridge(h_next_bridge_state);
 	
 #if GRIPPER_ROUTINE
@@ -159,7 +159,7 @@ int main(void)
 				case state_2_charge:
 					timerovf = 7812.5*3.61;
 					m_red(ON);
-					set_dutyccycle(HighVoltage);
+					set_dutycycle(HighVoltage);
 					break;
 				case state_3_LeftH:
 					timerovf = 7812.5*3.61;
@@ -191,7 +191,7 @@ int main(void)
 					set_h_bridge(H_DIS);
 				case state_9_finish:
 					set_h_bridge(H_OFF);
-					set_dutyccycle(LowVoltage); // turn HV off
+					set_dutycycle(LowVoltage); // turn HV off
 					m_red(OFF);
 					m_green(OFF);
 					break;
@@ -241,12 +241,17 @@ int main(void)
 		
 		// OUTPUT
 		//hv_output =		(hv_gains[F]/GAIN_DIVIDER) * hv_target + (hv_gains[P]/GAIN_DIVIDER) * hv_p + (hv_gains[I]/GAIN_DIVIDER) * hv_i + (hv_gains[D]/GAIN_DIVIDER) * hv_d;
-		hv_output =		1023-pwm_lookup[hv_target];// //(hv_target	* hv_gains[F])	>>GAIN_SHIFT; 
-		hv_output +=	(hv_p		* hv_gains[P])	>>GAIN_SHIFT;
+		hv_output =		hv_target;// //(hv_target	* hv_gains[F])	>>GAIN_SHIFT; 
+		hv_output +=	(hv_p		* hv_gains[P]);
 		hv_output +=	(hv_i		* hv_gains[I])	>>GAIN_SHIFT;
 		hv_output +=	(hv_d		* hv_gains[D])	>>GAIN_SHIFT;
 		
-		set_dutyccycle(1023-hv_output);
+		hv_output = ((hv_output&0x8000)) ? 0 : hv_output; // 2-complement is this number negative?
+		hv_output = (hv_output>1023) ? 1023 : hv_output;
+		//hv_output = (hv_output< 0)	? 0 : hv_output;
+		
+		hv_output =		pwm_lookup[hv_output];
+		set_dutycycle(hv_output);
         set_h_bridge(h_next_bridge_state);
 
         // GET USB INPUT
@@ -282,8 +287,10 @@ int main(void)
                     outgoing = h_next_bridge_state;
                     break;
 				case USB_STREAM: // SET H-BRIDGE OUTPUTS
-					is_usb_streaming = (incoming&USB_VALUE_MSK);
+					is_usb_streaming = (uint8_t)(incoming&USB_VALUE_MSK);
 					outgoing = is_usb_streaming;
+					m_usb_tx_char((char)(outgoing));
+					m_usb_tx_char((char)(outgoing>>8));
 					steam_cnt = 0;
 					break;
 				case PARAM_DUMP: // Dump parameters
@@ -380,7 +387,7 @@ void init(void){
 	
 	// HV_Enable 
 	clear(DDRE,6);            // sense only
-
+	set(PORTE,6);
     // TIMERS ------------------------------------
     
     // TICK TIMER (TIM0 rollover at 7812.5 Hz)
@@ -474,7 +481,7 @@ void inline set_h_bridge(h_bridge_state_t state){
  * 
  * @param hv_output the result of the PID 
  */
-void inline set_dutyccycle(uint16_t hv_output){
+void inline set_dutycycle(uint16_t hv_output){
 	hv_output = (hv_output>1023) ? 1023 : hv_output; //check if hv_output is bigger than 1023 and if so set to 1023
 	uint8_t pwm_cycle = ((hv_output>>2) > (DUTY_CYCLE_CAP>>2)) ? (hv_output>>2) : DUTY_CYCLE_CAP>>2; //convert double to uint8 an cap duty cycle
 	OCR4D = pwm_cycle; // PWM output max 255

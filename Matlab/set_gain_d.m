@@ -36,7 +36,7 @@ value = value * 4; % scale to 5 bit value
         write(handle,message,'uint8');
                 while(handle.NumBytesAvailable < 2)
         end
-        output = read(handle,1,'uint16');       
+        output = read(handle,1,'uint16');     
     end
     disp(['D set to ',num2str(output/4)]);
 end

@@ -22,7 +22,8 @@
 // Dxxxx (HV D gain between 0000 and 9999)
 
 #define USB_RX_BYTES    1
-#define USB_COMMAND_MSK 0xE0
+#define USB_TX_BYTES    64
+#define USB_CONTROL_MSK 0xE0
 #define USB_VALUE_MSK   0x1F
 /*
 #define F               0
@@ -68,8 +69,16 @@ typedef enum
     I,	// 2
     D,	// 3
     SET_HV_TARGET,	// 4
-    SET_H_STATUS	// 5
+    SET_H_STATUS,	// 5
+	USB_STREAM,		// 6
+	PARAM_DUMP = 7	//7
 } control_t;
+
+typedef enum
+{
+	TODO
+	
+} usb_command_t;
 
 // FUNCTION PROTOTYPES
 void init(void);
@@ -82,14 +91,16 @@ void inline set_dutyccycle(uint16_t hv_output);
 
 
 volatile static bool tick = FALSE;
+bool is_usb_streaming = FALSE; 
 
 int main(void)
 {
    
     uint16_t incoming = 0; 
+	uint8_t control = 0;
     uint16_t outgoing = 0;
     uint8_t usb_rx_buffer;
-	uint8_t usb_tx_buffer[64];
+	uint16_t usb_tx_buffer[USB_TX_BYTES/2];
     
     uint16_t hv_target = 0; // RANGE = 0 to 1023 (ADC range)
     //int outputs[4] = {0,0,0,0}; // H-L, L-L, H-R, L-R
@@ -97,6 +108,7 @@ int main(void)
 
     int16_t hv_feedback = 0, hv_filtered = 0, hv_p = 0, hv_i = 0, hv_d = 0, hv_p_last = 0, hv_output = 0;
     h_bridge_state_t h_next_bridge_state = H_OFF;
+	uint8_t steam_cnt = 0;
 	
     init();
 	set_dutyccycle(1023);
@@ -240,7 +252,8 @@ int main(void)
         // GET USB INPUT
         if(m_usb_rx_available()){ // absorb a new incoming command packet
             incoming = m_usb_rx_char();
-            switch((control_t)(incoming&USB_COMMAND_MSK)>>5){
+			control = incoming&USB_CONTROL_MSK;
+            switch((control_t)(control)>>5){
                 case SET_HV_TARGET: // SET HV OUTPUT
                     while(!m_usb_rx_available());
 					usb_rx_buffer = m_usb_rx_char();
@@ -249,35 +262,47 @@ int main(void)
                     outgoing = hv_target;
                     break;
                 case F: // SET HV F GAIN
-					hv_gains[F] = (incoming&USB_VALUE_MSK);
+					hv_gains[F] = (uint8_t)(incoming&USB_VALUE_MSK);
                     outgoing = hv_gains[F];
                     break;
                 case P: // SET HV P GAIN
-					hv_gains[P] = (incoming&USB_VALUE_MSK);
+					hv_gains[P] = (uint8_t)(incoming&USB_VALUE_MSK);
                     outgoing = hv_gains[P];
                     break;
                 case I: // SET HV I GAIN
-                    hv_gains[I] = (incoming&USB_VALUE_MSK);
+                    hv_gains[I] = (uint8_t)(incoming&USB_VALUE_MSK);
 					outgoing = hv_gains[I];
                     break;
                 case D: // SET HV D GAIN
-                    hv_gains[D] = (incoming&USB_VALUE_MSK);
+                    hv_gains[D] = (uint8_t)(incoming&USB_VALUE_MSK);
 					outgoing = hv_gains[D];
                     break;
                 case SET_H_STATUS: // SET H-BRIDGE OUTPUTS
                     h_next_bridge_state = (h_bridge_state_t)(incoming&USB_VALUE_MSK);
                     outgoing = h_next_bridge_state;
                     break;
+				case USB_STREAM: // SET H-BRIDGE OUTPUTS
+					is_usb_streaming = (incoming&USB_VALUE_MSK);
+					outgoing = is_usb_streaming;
+					steam_cnt = 0;
+					break;
+				case PARAM_DUMP: // Dump parameters
+					m_usb_tx_char( hv_gains[P]);
+					m_usb_tx_char(hv_gains[I]);
+					m_usb_tx_char(hv_gains[D]);
+					outgoing = hv_target;
+				    break;	
                 default:
                     //invalid command
                     break;
             }
             //bounce back set value
-			m_usb_tx_char((char)(outgoing));
-            m_usb_tx_char((char)(outgoing>>8));
-            
+			if(!is_usb_streaming){
+				m_usb_tx_char((char)(outgoing));
+				m_usb_tx_char((char)(outgoing>>8));
+			}
         }
-		if(hv_feedback>40){// HV_LED if ADC voltage is > 200mV => 425 V at HV output
+		if(check(PORTE,6)){// WARNING THIS ONLY WORKS WHEN THE BOARD HAS BEEN MODIFIED ACCORDINGLY
 			set_LED_RED(TRUE);
 			}else{
 			set_LED_RED(FALSE);
@@ -285,6 +310,15 @@ int main(void)
         if(tick){ // we've overrun the loop, which is bad
             m_red(ON);
         }
+		if (is_usb_streaming)
+		{
+			usb_tx_buffer[steam_cnt++] = hv_p;
+			if (steam_cnt==USB_TX_BYTES/2)
+			{
+				usb_serial_write((uint8_t*) usb_tx_buffer, USB_TX_BYTES);
+				steam_cnt = 0;
+			}
+		}
     }
 }
 

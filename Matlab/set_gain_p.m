@@ -31,8 +31,9 @@ value = value * 4; % scale to 5 bit value
         fprintf(handle,message);
         output = fscanf(handle);
     else
+        
         write(handle,message,'uint8');
-        output = read(handle,1,'uint16');        
+        output = read(handle,1,'uint16');
     end
     disp(['P set to ',num2str(output/4)]);
 end
